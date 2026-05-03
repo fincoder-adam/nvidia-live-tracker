@@ -94,23 +94,30 @@ async function yahooSummary() {
   const ks = res.defaultKeyStatistics || {};
   const fd = res.financialData     || {};
   const sd = res.summaryDetail     || {};
+  // Yahoo returns margins as decimals (0.605 = 60.5%) — convert to %
+  const toRaw = (obj) => obj?.raw ?? null;
   return {
-    pe:           sd.trailingPE?.raw       || p.trailingPE?.raw,
-    forwardPE:    sd.forwardPE?.raw        || ks.forwardPE?.raw,
-    ps:           ks.priceToSalesTrailing12Months?.raw,
-    pb:           ks.priceToBook?.raw,
-    evEbitda:     ks.enterpriseToEbitda?.raw,
-    evRev:        ks.enterpriseToRevenue?.raw,
-    peg:          ks.pegRatio?.raw,
-    divYield:     sd.dividendYield?.raw    || sd.trailingAnnualDividendYield?.raw || 0,
-    eps:          ks.trailingEps?.raw,
-    grossMargin:  fd.grossMargins?.raw,
-    revTTM:       fd.totalRevenue?.raw,
-    niTTM:        fd.netIncomeToCommon?.raw,
-    currentRatio: fd.currentRatio?.raw,
-    deRatio:      fd.debtToEquity?.raw != null ? fd.debtToEquity.raw / 100 : null,
-    ocfTTM:       fd.operatingCashflow?.raw,
-    fcfTTM:       fd.freeCashflow?.raw,
+    pe:           toRaw(sd.trailingPE)       || toRaw(p.trailingPE),
+    forwardPE:    toRaw(sd.forwardPE)        || toRaw(ks.forwardPE),
+    ps:           toRaw(ks.priceToSalesTrailing12Months),
+    pb:           toRaw(ks.priceToBook),
+    evEbitda:     toRaw(ks.enterpriseToEbitda),
+    evRev:        toRaw(ks.enterpriseToRevenue),
+    peg:          toRaw(ks.pegRatio),
+    divYield:     toRaw(sd.dividendYield)    || toRaw(sd.trailingAnnualDividendYield) || 0,
+    eps:          toRaw(ks.trailingEps),
+    // grossMargins is a decimal from Yahoo (e.g. 0.605) — convert to %
+    grossMargin:  fd.grossMargins?.raw != null ? fd.grossMargins.raw * 100 : null,
+    revTTM:       toRaw(fd.totalRevenue),
+    niTTM:        toRaw(fd.netIncomeToCommon),
+    currentRatio: toRaw(fd.currentRatio),
+    // debtToEquity from Yahoo is already a ratio (not %) — no division needed
+    deRatio:      toRaw(fd.debtToEquity),
+    ocfTTM:       toRaw(fd.operatingCashflow),
+    fcfTTM:       toRaw(fd.freeCashflow),
+    // Extra fields
+    operatingMargin: fd.operatingMargins?.raw != null ? fd.operatingMargins.raw * 100 : null,
+    profitMargin:    fd.profitMargins?.raw    != null ? fd.profitMargins.raw    * 100 : null,
   };
 }
 
@@ -127,34 +134,39 @@ async function yahooFinancials() {
     });
   }
 
-  const incStmts = res.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
-  const bsStmts  = res.balanceSheetHistoryQuarterly?.balanceSheetStatements    || [];
-  const cfStmts  = res.cashflowStatementHistoryQuarterly?.cashflowStatements   || [];
+  const incStmts   = res.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+  const bsStmts    = res.balanceSheetHistoryQuarterly?.balanceSheetStatements    || [];
+  const cfStmts    = res.cashflowStatementHistoryQuarterly?.cashflowStatements   || [];
+  const epsHistory = res.earningsHistory?.history || [];
 
   const income = parseStmts(incStmts, [
     ['revenue',    'totalRevenue'],
     ['grossProfit','grossProfit'],
     ['opIncome',   'operatingIncome'],
     ['netIncome',  'netIncome'],
-    ['eps',        'dilutedEPS'],
+    // EPS not in income stmt — pulled from summary.eps instead
     ['rd',         'researchDevelopment'],
+    ['costOfRev',  'costOfRevenue'],
+    ['totalOpEx',  'totalOperatingExpenses'],
   ]);
 
   const balance = parseStmts(bsStmts, [
-    ['cash',    'cash'],
-    ['stInvest','shortTermInvestments'],
+    ['cash',      'cash'],
+    ['stInvest',  'shortTermInvestments'],
     ['currAssets','totalCurrentAssets'],
-    ['assets',  'totalAssets'],
-    ['ltd',     'longTermDebt'],
-    ['liab',    'totalLiab'],
-    ['equity',  'totalStockholderEquity'],
-    ['inv',     'inventory'],
+    ['assets',    'totalAssets'],
+    ['ltd',       'longTermDebt'],
+    ['liab',      'totalLiab'],              // Yahoo uses totalLiab not totalLiabilities
+    ['equity',    'totalStockholderEquity'], // Yahoo uses totalStockholderEquity (singular)
+    ['inv',       'inventory'],
+    ['shortLtDebt','shortLongTermDebt'],
   ]);
 
   const cashflow = parseStmts(cfStmts, [
     ['ocf',     'totalCashFromOperatingActivities'],
-    ['capex',   'capitalExpenditures'],
-    ['buybacks','repurchaseOfStock'],
+    ['capex',   'capitalExpenditures'],       // negative number, abs() applied below
+    ['buybacks','repurchaseOfStock'],          // negative number, abs() applied below
+    ['dividends','dividendsPaid'],
   ]);
 
   // Merge into unified quarters array
@@ -163,36 +175,51 @@ async function yahooFinancials() {
     const inc = income[i]   || {};
     const bs  = balance[i]  || {};
     const cf  = cashflow[i] || {};
-    const rev = inc.revenue;
-    const gp  = inc.grossProfit;
-    const oi  = inc.opIncome;
-    const ni  = inc.netIncome;
-    const ocf = cf.ocf;
+    const rev = inc.revenue  || null;
+    const gp  = inc.grossProfit || null;
+    const oi  = inc.opIncome || null;
+    const ni  = inc.netIncome || null;
+    const ocf = cf.ocf || null;
     const cx  = cf.capex != null ? Math.abs(cf.capex) : null;
+    // totalLiab can be negative in Yahoo's data (sign convention) — use abs
+    const liab = bs.liab != null ? Math.abs(bs.liab) : null;
     return {
-      label:      inc.date || bs.date || cf.date || `Q${i+1}`,
-      revenue:    rev,
-      grossProfit:gp,
-      opIncome:   oi,
-      netIncome:  ni,
-      eps:        inc.eps,
-      rd:         inc.rd,
-      grossMargin:rev && gp  ? gp/rev*100  : null,
-      opMargin:   rev && oi  ? oi/rev*100  : null,
-      netMargin:  rev && ni  ? ni/rev*100  : null,
-      ocf, capex: cx,
-      fcf:        ocf != null && cx != null ? ocf - cx : null,
-      fcfMargin:  ocf && cx && rev ? (ocf-cx)/rev*100 : null,
-      cash:       bs.cash,
-      stInvest:   bs.stInvest,
-      currAssets: bs.currAssets,
-      assets:     bs.assets,
-      ltd:        bs.ltd,
-      liab:       bs.liab,
-      equity:     bs.equity,
-      inv:        bs.inv,
-      buybacks:   cf.buybacks != null ? Math.abs(cf.buybacks) : null,
+      label:       inc.date || bs.date || cf.date || `Q${i+1}`,
+      revenue:     rev,
+      grossProfit: gp,
+      opIncome:    oi,
+      netIncome:   ni,
+      eps:         null,   // populated per-quarter from earningsHistory below
+      rd:          inc.rd  || null,
+      costOfRev:   inc.costOfRev || null,
+      grossMargin: rev && gp  ? gp/rev*100  : null,
+      opMargin:    rev && oi  ? oi/rev*100  : null,
+      netMargin:   rev && ni  ? ni/rev*100  : null,
+      ocf,
+      capex:       cx,
+      fcf:         ocf != null && cx != null ? ocf - cx : null,
+      fcfMargin:   ocf != null && cx != null && rev ? (ocf-cx)/rev*100 : null,
+      cash:        bs.cash    || null,
+      stInvest:    bs.stInvest|| null,
+      currAssets:  bs.currAssets || null,
+      assets:      bs.assets  || null,
+      ltd:         bs.ltd     || null,
+      liab,
+      equity:      bs.equity  || null,
+      inv:         bs.inv     || null,
+      buybacks:    cf.buybacks != null ? Math.abs(cf.buybacks) : null,
     };
+  });
+
+  // Inject per-quarter EPS from earningsHistory (most reliable source)
+  // earningsHistory is in reverse chronological order — newest first
+  const epsReversed = epsHistory.slice(0, 4);
+  quarters.forEach((q, i) => {
+    // Match by index (both arrays reversed to oldest-first already)
+    const epsEntry = epsReversed[quarters.length - 1 - i];
+    if (epsEntry) {
+      q.eps = epsEntry.epsActual?.raw ?? epsEntry.epsStreet?.raw ?? null;
+    }
   });
 
   return quarters;
@@ -400,7 +427,7 @@ function populateOverview() {
     {label:'Market cap',       value:fT(q.marketCap), sub:'total market value'},
     {label:'Revenue (TTM)',    value:fT(s.revTTM),    sub:'trailing 12 months'},
     {label:'Net income (TTM)', value:fT(s.niTTM),     sub:'trailing 12 months'},
-    {label:'Gross margin',     value:fP(s.grossMargin!=null?s.grossMargin*100:null), sub:'latest quarter'},
+    {label:'Gross margin',     value:fP(s.grossMargin), sub:'latest quarter'},
     {label:'EPS diluted (TTM)',value:f$(s.eps),        sub:'earnings per share'},
     {label:'P/E ratio (TTM)', value:fX(s.pe),          sub:'S&P 500 avg ~26x'},
     {label:'Forward P/E',      value:fX(s.forwardPE),  sub:'next 12-month est.'},

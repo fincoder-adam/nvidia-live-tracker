@@ -101,7 +101,7 @@ exports.handler = async function (event) {
       const symbol  = qs.symbol || 'NVDA';
       const modules = path.includes('/yahoo/summary')
         ? 'price,defaultKeyStatistics,financialData,summaryDetail'
-        : 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly';
+        : 'incomeStatementHistoryQuarterly,balanceSheetHistoryQuarterly,cashflowStatementHistoryQuarterly,earningsHistory';
       const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=${modules}&crumb=${encodeURIComponent(crumb)}`;
       result = await httpsGet(url, {
         'Cookie':  cookie,
