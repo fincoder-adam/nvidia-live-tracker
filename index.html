@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="NVIDIA (NVDA) live financial dashboard — real-time price, earnings, balance sheet, cash flow and valuation metrics." />
+  <title>NVDA Financial Dashboard</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       API KEY GATE
+  ═══════════════════════════════════════════ -->
+  <div id="key-gate">
+    <div class="gate-card">
+      <div class="gate-logo">
+        <svg viewBox="0 0 120 80" fill="none" width="72">
+          <rect width="120" height="80" rx="10" fill="#76b900"/>
+          <path d="M14 40C14 40 30 16 60 16C90 16 106 40 106 40C106 40 90 62 60 62C30 62 14 40 14 40Z" fill="white"/>
+          <circle cx="60" cy="40" r="14" fill="#76b900"/>
+          <circle cx="60" cy="40" r="7" fill="white"/>
+        </svg>
+        <span>NVDA Dashboard</span>
+      </div>
+      <h1>Live Financial Intelligence</h1>
+      <p><strong>No API key required.</strong> Live data loads automatically via Yahoo Finance. Optionally add a free key from Alpha Vantage or Finnhub to enrich the data.</p>
+
+      <div style="margin-bottom:20px">
+        <button id="btn-connect" onclick="skipKey()" style="width:100%;padding:12px;background:#76b900;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;color:#000;cursor:pointer;transition:opacity .2s">
+          Launch Dashboard →
+        </button>
+      </div>
+
+      <details style="margin-bottom:20px">
+        <summary style="font-size:13px;color:#8896b0;cursor:pointer;margin-bottom:12px">+ Add optional API key to enrich data</summary>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <select id="api-provider" style="background:#0d1018;border:1px solid #1e2535;border-radius:8px;padding:10px 12px;color:#e2e8f4;font-family:inherit;font-size:12px;flex-shrink:0">
+            <option value="none">Select provider</option>
+            <option value="alphavantage">Alpha Vantage (free)</option>
+            <option value="finnhub">Finnhub (free)</option>
+            <option value="polygon">Polygon.io (free)</option>
+          </select>
+          <input type="password" id="api-key-input" placeholder="Paste API key…" autocomplete="off"
+            style="flex:1;background:#0d1018;border:1px solid #1e2535;border-radius:8px;padding:10px 12px;color:#e2e8f4;font-family:monospace;font-size:12px;outline:none" />
+          <button onclick="initWithKey()" style="background:rgba(118,185,0,.15);border:1px solid #76b900;border-radius:8px;padding:10px 14px;color:#76b900;font-family:inherit;font-size:12px;cursor:pointer;white-space:nowrap">Add →</button>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#4a5568">
+          <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener" style="color:#76b900">Get Alpha Vantage key ↗</a>
+          &nbsp;·&nbsp;
+          <a href="https://finnhub.io/register" target="_blank" rel="noopener" style="color:#76b900">Get Finnhub key ↗</a>
+        </div>
+      </details>
+
+      <div class="gate-sources">
+        <span>Primary source:</span>
+        <span class="src-badge">Yahoo Finance</span>
+        <span class="src-badge">No key needed</span>
+        <span class="src-badge">Server-side proxy</span>
+      </div>
+
+      <div id="gate-error" class="gate-error" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       MAIN DASHBOARD
+  ═══════════════════════════════════════════ -->
+  <div id="dashboard" style="display:none">
+
+    <!-- HEADER -->
+    <header class="hdr">
+      <div class="hdr-inner">
+        <div class="hdr-left">
+          <div class="brand-logo">
+            <svg viewBox="0 0 120 80" fill="none">
+              <rect width="120" height="80" rx="10" fill="#76b900"/>
+              <path d="M14 40C14 40 30 16 60 16C90 16 106 40 106 40C106 40 90 62 60 62C30 62 14 40 14 40Z" fill="white"/>
+              <circle cx="60" cy="40" r="14" fill="#76b900"/>
+              <circle cx="60" cy="40" r="7" fill="white"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <h1>NVIDIA <em>Financial</em> Dashboard</h1>
+            <p id="hdr-sub">Connecting…</p>
+          </div>
+        </div>
+        <div class="hdr-right">
+          <span class="pill pill-green">NVDA · NASDAQ</span>
+          <span class="pill pill-live" id="pill-live"><span class="live-dot"></span>LIVE</span>
+          <button class="btn-refresh" id="btn-refresh" onclick="refreshAll()">
+            <span class="refresh-icon" id="refresh-icon">↻</span> Refresh
+          </button>
+          <button class="btn-ghost" onclick="resetKey()">⌥ Change key</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- PRICE TICKER -->
+    <div class="ticker-bar">
+      <div class="ticker-inner">
+        <span class="ticker-symbol">NVDA</span>
+        <span class="ticker-price" id="t-price">—</span>
+        <span class="ticker-change" id="t-change">—</span>
+        <span class="ticker-sep">│</span>
+        <span class="ticker-meta">Mkt Cap <strong id="t-mc">—</strong></span>
+        <span class="ticker-sep">│</span>
+        <span class="ticker-meta">Vol <strong id="t-vol">—</strong></span>
+        <span class="ticker-sep">│</span>
+        <span class="ticker-meta">52W <strong id="t-52w">—</strong></span>
+        <span class="ticker-sep">│</span>
+        <span class="ticker-meta">P/E <strong id="t-pe">—</strong></span>
+        <span class="ticker-updated" id="t-updated"></span>
+      </div>
+    </div>
+
+    <!-- SOURCE BAR -->
+    <div class="source-bar">
+      <span class="source-label">Live data from:</span>
+      <span class="src-tag" id="src-quote">Real-Time Quote</span>
+      <span class="src-tag" id="src-ratios">Ratios & Valuation</span>
+      <span class="src-tag" id="src-fin">Quarterly Financials</span>
+      <span class="src-tag" id="src-optional" style="display:none">Optional</span>
+      <span class="source-right" id="data-freshness"></span>
+    </div>
+
+    <!-- ERROR BANNER -->
+    <div class="err-banner" id="err-banner" style="display:none">
+      <strong>⚠</strong> <span id="err-msg"></span>
+    </div>
+
+    <!-- TABS -->
+    <nav class="tabs-nav">
+      <div class="tabs-inner">
+        <button class="tab-btn active" data-tab="overview">Overview</button>
+        <button class="tab-btn" data-tab="revenue">Revenue</button>
+        <button class="tab-btn" data-tab="balance">Balance Sheet</button>
+        <button class="tab-btn" data-tab="cashflow">Cash Flow</button>
+        <button class="tab-btn" data-tab="valuation">Valuation</button>
+      </div>
+    </nav>
+
+    <!-- ── OVERVIEW ── -->
+    <section class="tab-panel active" id="panel-overview">
+      <div class="explainer">
+        <div class="expl-icon">📊</div>
+        <div><strong>What you're looking at:</strong> NVIDIA's key financial metrics for the last 4 reported quarters, updated live via the Financial Modeling Prep API. Every card, chart and table on this dashboard pulls real data — no static numbers.</div>
+      </div>
+      <h2 class="section-heading">Headline KPIs</h2>
+      <div class="kpi-grid" id="kpi-overview"></div>
+      <div class="chart-grid two-col">
+        <div class="chart-card">
+          <div class="chart-label">Quarterly revenue ($B)</div>
+          <div class="chart-wrap"><canvas id="ch-ov-rev" role="img" aria-label="NVDA quarterly revenue"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">Net income ($B)</div>
+          <div class="chart-wrap"><canvas id="ch-ov-ni" role="img" aria-label="NVDA quarterly net income"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">Margin trends (%)</div>
+          <div class="chart-wrap"><canvas id="ch-ov-mg" role="img" aria-label="NVDA margin trends"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">EPS diluted ($)</div>
+          <div class="chart-wrap"><canvas id="ch-ov-eps" role="img" aria-label="NVDA EPS per quarter"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── REVENUE ── -->
+    <section class="tab-panel" id="panel-revenue">
+      <div class="explainer">
+        <div class="expl-icon">💡</div>
+        <div><strong>Revenue & Profitability:</strong> Revenue is total money earned. Gross Profit subtracts direct production costs. Operating Income further deducts R&D and admin expenses. Net Income is the final take-home after taxes. Higher margins = more of every dollar kept as profit.</div>
+      </div>
+      <h2 class="section-heading">Revenue KPIs</h2>
+      <div class="kpi-grid" id="kpi-revenue"></div>
+      <div class="chart-grid one-col">
+        <div class="chart-card tall">
+          <div class="chart-label">Revenue & gross profit — last 4 quarters ($B)</div>
+          <div class="chart-wrap tall"><canvas id="ch-rev-main" role="img" aria-label="Revenue and gross profit"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-grid two-col">
+        <div class="chart-card">
+          <div class="chart-label">Operating vs net margin (%)</div>
+          <div class="chart-wrap"><canvas id="ch-rev-mg" role="img" aria-label="Operating and net margin"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">QoQ revenue growth (%)</div>
+          <div class="chart-wrap"><canvas id="ch-rev-gr" role="img" aria-label="QoQ revenue growth"></canvas></div>
+        </div>
+      </div>
+      <div class="data-table-card">
+        <div class="dt-header">
+          Income statement — last 4 quarters
+          <span class="dt-note">All figures in $B unless noted · Source: Financial Modeling Prep</span>
+        </div>
+        <div class="dt-scroll">
+          <table id="tbl-income">
+            <thead><tr><th>Metric</th><th id="ih1">—</th><th id="ih2">—</th><th id="ih3">—</th><th id="ih4">—</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label">Revenue</td><td id="ir-r1">—</td><td id="ir-r2">—</td><td id="ir-r3">—</td><td id="ir-r4" class="hi">—</td></tr>
+              <tr><td class="row-label">Gross profit</td><td id="ir-g1">—</td><td id="ir-g2">—</td><td id="ir-g3">—</td><td id="ir-g4">—</td></tr>
+              <tr><td class="row-label">Gross margin</td><td id="ir-gm1">—</td><td id="ir-gm2">—</td><td id="ir-gm3">—</td><td id="ir-gm4">—</td></tr>
+              <tr><td class="row-label">Operating income</td><td id="ir-o1">—</td><td id="ir-o2">—</td><td id="ir-o3">—</td><td id="ir-o4">—</td></tr>
+              <tr><td class="row-label">Net income</td><td id="ir-n1">—</td><td id="ir-n2">—</td><td id="ir-n3">—</td><td id="ir-n4">—</td></tr>
+              <tr><td class="row-label">EPS diluted ($)</td><td id="ir-e1">—</td><td id="ir-e2">—</td><td id="ir-e3">—</td><td id="ir-e4">—</td></tr>
+              <tr><td class="row-label">R&D expense</td><td id="ir-rd1">—</td><td id="ir-rd2">—</td><td id="ir-rd3">—</td><td id="ir-rd4">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── BALANCE SHEET ── -->
+    <section class="tab-panel" id="panel-balance">
+      <div class="explainer">
+        <div class="expl-icon">🏦</div>
+        <div><strong>Balance Sheet:</strong> A snapshot of what NVIDIA owns (assets), owes (liabilities), and what belongs to shareholders (equity). The equation always holds: Assets = Liabilities + Equity. Strong cash reserves, low debt, and growing equity are all positive signals.</div>
+      </div>
+      <h2 class="section-heading">Balance Sheet KPIs</h2>
+      <div class="kpi-grid" id="kpi-balance"></div>
+      <div class="chart-grid two-col">
+        <div class="chart-card tall">
+          <div class="chart-label">Equity vs liabilities ($B)</div>
+          <div class="chart-wrap tall"><canvas id="ch-bal-stk" role="img" aria-label="Equity vs liabilities stacked bar"></canvas></div>
+        </div>
+        <div class="chart-card tall">
+          <div class="chart-label">Cash & investments vs long-term debt ($B)</div>
+          <div class="chart-wrap tall"><canvas id="ch-bal-cd" role="img" aria-label="Cash and investments vs long-term debt"></canvas></div>
+        </div>
+      </div>
+      <div class="data-table-card">
+        <div class="dt-header">Balance sheet — last 4 quarters <span class="dt-note">All figures $B</span></div>
+        <div class="dt-scroll">
+          <table>
+            <thead><tr><th>Metric</th><th id="bh1">—</th><th id="bh2">—</th><th id="bh3">—</th><th id="bh4">—</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label">Cash & equivalents</td><td id="br-c1">—</td><td id="br-c2">—</td><td id="br-c3">—</td><td id="br-c4" class="hi">—</td></tr>
+              <tr><td class="row-label">Short-term investments</td><td id="br-si1">—</td><td id="br-si2">—</td><td id="br-si3">—</td><td id="br-si4">—</td></tr>
+              <tr><td class="row-label">Total current assets</td><td id="br-ca1">—</td><td id="br-ca2">—</td><td id="br-ca3">—</td><td id="br-ca4">—</td></tr>
+              <tr><td class="row-label">Total assets</td><td id="br-ta1">—</td><td id="br-ta2">—</td><td id="br-ta3">—</td><td id="br-ta4">—</td></tr>
+              <tr><td class="row-label">Long-term debt</td><td id="br-ld1">—</td><td id="br-ld2">—</td><td id="br-ld3">—</td><td id="br-ld4">—</td></tr>
+              <tr><td class="row-label">Total liabilities</td><td id="br-tl1">—</td><td id="br-tl2">—</td><td id="br-tl3">—</td><td id="br-tl4">—</td></tr>
+              <tr><td class="row-label">Shareholders' equity</td><td id="br-eq1">—</td><td id="br-eq2">—</td><td id="br-eq3">—</td><td id="br-eq4">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CASH FLOW ── -->
+    <section class="tab-panel" id="panel-cashflow">
+      <div class="explainer">
+        <div class="expl-icon">💸</div>
+        <div><strong>Cash Flow:</strong> Profit can be manipulated by accounting rules — cash flow is harder to fake. Operating Cash Flow shows real cash generated from the business. Free Cash Flow (FCF = OCF − CapEx) is what's available to reward shareholders. NVIDIA's ultra-low CapEx makes its FCF exceptional.</div>
+      </div>
+      <h2 class="section-heading">Cash Flow KPIs</h2>
+      <div class="kpi-grid" id="kpi-cashflow"></div>
+      <div class="chart-grid one-col">
+        <div class="chart-card tall">
+          <div class="chart-label">Operating CF vs free CF — last 4 quarters ($B)</div>
+          <div class="chart-wrap tall"><canvas id="ch-cf-main" role="img" aria-label="Operating and free cash flow grouped bars"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-grid two-col">
+        <div class="chart-card">
+          <div class="chart-label">FCF margin trend (%)</div>
+          <div class="chart-wrap"><canvas id="ch-cf-mg" role="img" aria-label="FCF margin trend line chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">CapEx per quarter ($B)</div>
+          <div class="chart-wrap"><canvas id="ch-cf-cx" role="img" aria-label="CapEx bar chart"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── VALUATION ── -->
+    <section class="tab-panel" id="panel-valuation">
+      <div class="explainer">
+        <div class="expl-icon">📐</div>
+        <div><strong>Valuation Ratios:</strong> These compare NVIDIA's stock price to its financial performance. P/E = years of earnings you're paying for. P/S = price vs annual revenue. A PEG below 1.0 may suggest the stock is undervalued relative to its growth rate. Compare against S&P 500 averages to gauge whether NVIDIA looks cheap or expensive.</div>
+      </div>
+      <h2 class="section-heading">Valuation KPIs</h2>
+      <div class="kpi-grid" id="kpi-valuation"></div>
+      <div class="chart-grid one-col">
+        <div class="chart-card tall">
+          <div class="chart-label">NVDA vs S&P 500 — valuation multiples comparison (live)</div>
+          <div class="chart-wrap tall"><canvas id="ch-val-cmp" role="img" aria-label="NVDA vs SP500 valuation multiples horizontal bar chart"></canvas></div>
+        </div>
+      </div>
+      <div class="data-table-card">
+        <div class="dt-header">Valuation ratios — detail <span class="dt-note">Live from FMP · Hover ratio names for definitions</span></div>
+        <div class="dt-scroll">
+          <table id="tbl-val">
+            <thead><tr><th>Ratio</th><th>NVDA (live)</th><th>S&P 500 avg</th><th>Premium vs S&P</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label"><span class="tip-host" data-tip="Price ÷ Earnings per share. How many years of current earnings you're paying for.">P/E (TTM) <sup>?</sup></span></td><td id="vt-pe">—</td><td>~26x</td><td id="vt-pe-d" class="neg">—</td></tr>
+              <tr><td class="row-label"><span class="tip-host" data-tip="Price vs next-year earnings estimate. Lower than TTM P/E = earnings growing fast.">Forward P/E <sup>?</sup></span></td><td id="vt-fpe">—</td><td>~22x</td><td id="vt-fpe-d" class="neg">—</td></tr>
+              <tr><td class="row-label"><span class="tip-host" data-tip="Market cap ÷ annual revenue. Useful when comparing high-growth companies.">P/S ratio <sup>?</sup></span></td><td id="vt-ps">—</td><td>~2.8x</td><td id="vt-ps-d" class="neg">—</td></tr>
+              <tr><td class="row-label"><span class="tip-host" data-tip="Price ÷ Book Value. Compares market price to the company's accounting net worth.">P/B ratio <sup>?</sup></span></td><td id="vt-pb">—</td><td>~4.5x</td><td id="vt-pb-d" class="neg">—</td></tr>
+              <tr><td class="row-label"><span class="tip-host" data-tip="Enterprise Value ÷ EBITDA. Clean cross-company comparison used by analysts.">EV / EBITDA <sup>?</sup></span></td><td id="vt-ev">—</td><td>~16x</td><td id="vt-ev-d" class="neg">—</td></tr>
+              <tr><td class="row-label"><span class="tip-host" data-tip="P/E ÷ EPS growth rate. Below 1.0 may suggest undervalued relative to growth.">PEG ratio <sup>?</sup></span></td><td id="vt-peg">—</td><td>~1.8x</td><td id="vt-peg-d" class="pos">—</td></tr>
+              <tr><td class="row-label"><span class="tip-host" data-tip="Annual dividends ÷ share price. NVIDIA returns cash mainly via share buybacks.">Dividend yield <sup>?</sup></span></td><td id="vt-dy">—</td><td>~1.3%</td><td id="vt-dy-d">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>NVDA Financial Dashboard · Data via <a href="https://financialmodelingprep.com" target="_blank" rel="noopener">Financial Modeling Prep</a></span>
+        <span>Not financial advice · For informational purposes only</span>
+      </div>
+    </footer>
+
+  </div><!-- /dashboard -->
+
+  <!-- TOOLTIP -->
+  <div id="global-tooltip" class="global-tooltip"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

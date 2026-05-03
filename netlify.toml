@@ -1,0 +1,13 @@
+[build]
+  functions = "netlify/functions"
+
+[[redirects]]
+  from   = "/api/fmp/*"
+  to     = "/.netlify/functions/fmp-proxy"
+  status = 200
+  force  = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
